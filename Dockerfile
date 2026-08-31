@@ -13,7 +13,10 @@ FROM node:20-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     WORKSPACE=/workspace \
     TZ=UTC \
-    SHELL=/bin/bash
+    SHELL=/bin/bash \
+    CLAUDE_USER=claude \
+    HOME=/home/claude \
+    TMUX_SOCKET=/run/claude/tmux.sock
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -38,8 +41,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       wget \
     && rm -rf /var/lib/apt/lists/*
 
-# bash for everything: root's login shell, $SHELL for anything that spawns
-# one (Claude Code's shell tool included), and tmux's default-shell below.
+# Everything at runtime runs as this unprivileged user. uid/gid 1000 by
+# default so files it writes into a bind-mounted workspace are owned by the
+# typical first host user; entrypoint.sh can remap it via PUID/PGID.
+#
+# node:20-slim already ships a `node` user at 1000, which would collide.
+ARG PUID=1000
+ARG PGID=1000
+RUN userdel -r node 2>/dev/null || true; \
+    groupdel node 2>/dev/null || true; \
+    groupadd -g "$PGID" claude && \
+    useradd -u "$PUID" -g "$PGID" -m -d /home/claude -s /bin/bash claude
+
+# bash for everything: the unprivileged user's login shell, root's login
+# shell, $SHELL for anything that spawns one (Claude Code's shell tool
+# included), and tmux's default-shell.
 RUN chsh -s /bin/bash root
 
 # python -> python3 (many tools assume the bare name exists)
@@ -76,13 +92,23 @@ RUN npm install -g @anthropic-ai/claude-code && claude --version
 # Caveman plugin: baked into the image so a fresh container starts with it
 # already installed. Marketplace/plugin state lives in ~/.claude; the
 # entrypoint re-runs this idempotently in case ~/.claude is a fresh volume.
-RUN claude plugin marketplace add JuliusBrussee/caveman \
-    && claude plugin install caveman@caveman --yes \
+RUN runuser -u claude -- env HOME=/home/claude \
+      bash -c 'claude plugin marketplace add JuliusBrussee/caveman \
+               && claude plugin install caveman@caveman --yes' \
     || echo "caveman install deferred to entrypoint"
 
 # Mouse off + no alternate screen, so an attached console keeps the
 # terminal's own selection/copy and scrollback. See tmux.conf.
 COPY tmux.conf /etc/tmux.conf
+
+# Web terminals (Coolify, Portainer) `docker exec` in as root and exec $SHELL,
+# so this banner is what you see when you click "Terminal". PID 1 has to stay
+# root, so there is no USER directive to make that land as `claude` instead.
+RUN printf '%s\n' \
+      'if [ -n "$PS1" ]; then' \
+      '  echo "claude-runner  --  \`console\` attaches to the live Claude session (detach: Ctrl-b d)"' \
+      '  echo "                   \`runuser -u claude -- bash\` for an unprivileged shell"' \
+      'fi' >> /root/.bashrc
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY claude-watchdog.sh /usr/local/bin/claude-watchdog
@@ -96,15 +122,23 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-watchdog \
 # Default watchdog schedule. entrypoint.sh rewrites this file on every start
 # from WATCHDOG_INTERVAL_MIN (and deletes it when WATCHDOG_ENABLED=false), so
 # the interval is a compose setting, not a rebuild.
-RUN echo '*/10 * * * * root /usr/local/bin/claude-watchdog >> /var/log/claude-watchdog.log 2>&1' \
+# The user column is `claude`, not root: cron itself stays privileged, the
+# watchdog does not.
+RUN echo '*/10 * * * * claude /usr/local/bin/claude-watchdog >> /var/log/claude-watchdog.log 2>&1' \
       > /etc/cron.d/claude-watchdog \
     && chmod 0644 /etc/cron.d/claude-watchdog \
-    && touch /var/log/claude-watchdog.log
+    && touch /var/log/claude-watchdog.log \
+    && chown claude:claude /var/log/claude-watchdog.log
 
-# /root is a named volume at runtime. Docker seeds a fresh volume from the
+# /home/claude is a named volume at runtime. Docker seeds a fresh volume from the
 # image's directory contents, so the caveman plugin installed above and any
 # ~/.claude.json written at build time survive into it on first start.
-RUN mkdir -p /workspace /var/lib/claude-watchdog /root/.claude
+#
+# PID 1 stays root so it can remap PUID/PGID and chown the workspace; it
+# drops to the claude user for the session itself, so there is no USER here.
+RUN mkdir -p /workspace /var/lib/claude-watchdog /run/claude /home/claude/.claude \
+    && chown -R claude:claude /workspace /var/lib/claude-watchdog /run/claude \
+         /home/claude
 WORKDIR /workspace
 
 # Compose overrides this with its own healthcheck block; this is the default

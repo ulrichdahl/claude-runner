@@ -3,6 +3,8 @@ services:
     build:
       context: .
       args:
+        PUID: ${PUID:-1000}
+        PGID: ${PGID:-1000}
         # Tool versions are build-time, so they belong here rather than in
         # `environment:` -- change one and rebuild.
         GH_VERSION: ${GH_VERSION:-2.63.2}
@@ -17,6 +19,17 @@ services:
       # the watchdog compares them against the container clock.
       TZ: ${TZ:-UTC}
       WORKSPACE: /workspace
+
+      # --- runtime user ---
+      # Claude runs unprivileged as these ids, so files it writes into the
+      # mounted workspace are owned by you on the host rather than by root.
+      # Match your own: `id -u` / `id -g`.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # auto  chown the workspace only when its owner doesn't match PUID
+      # always force it on every start
+      # never  skip it (read-only or NFS-backed mounts)
+      CHOWN_WORKSPACE: ${CHOWN_WORKSPACE:-auto}
 
       # --- console ---
       # Extra flags for the console's claude process,
@@ -57,10 +70,10 @@ services:
       # separate file ~/.claude.json (onboarding state, user id, per-project
       # settings, marketplace flags). Mounting only ~/.claude silently loses
       # the latter on every rebuild.
-      - claude-home:/root
+      - claude-home:/home/claude
 
 volumes:
-  # Renamed from claude-config, which was mounted at /root/.claude. A volume
-  # holding the old shape would land ~/.claude's contents directly in /root,
-  # so the new name forces a clean re-seed from the image. See README.
+  # Home directory of the unprivileged `claude` user. Covers both ~/.claude
+  # and the separate ~/.claude.json, which is why it's the whole home rather
+  # than just the config directory. See README.
   claude-home:

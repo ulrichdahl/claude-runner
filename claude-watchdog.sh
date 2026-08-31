@@ -21,6 +21,7 @@ set -uo pipefail
 [[ -f /etc/claude-watchdog.env ]] && . /etc/claude-watchdog.env
 
 SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+TMUX_SOCKET="${TMUX_SOCKET:-/run/claude/tmux.sock}"
 STATE_DIR=/var/lib/claude-watchdog
 RESUME_AT="$STATE_DIR/resume_at"        # epoch seconds
 SCOPE_FILE="$STATE_DIR/scope"           # session | weekly
@@ -39,17 +40,17 @@ log() { echo "$(date -Iseconds) $*"; }
 now() { date +%s; }
 stamp_age() { local f=$1; [[ -f $f ]] && echo $(( $(now) - $(cat "$f") )) || echo 999999; }
 
-if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+if ! tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   log "no tmux session '$SESSION' -- nothing to watch"
   exit 0
 fi
 
-capture() { tmux capture-pane -p -S "-$PANE_LINES" -t "$SESSION"; }
+capture() { tmux -S "$TMUX_SOCKET" capture-pane -p -S "-$PANE_LINES" -t "$SESSION"; }
 
 send_line() {
-  tmux send-keys -t "$SESSION" -l "$1"
+  tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" -l "$1"
   sleep 1
-  tmux send-keys -t "$SESSION" Enter
+  tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter
 }
 
 state="$(capture | python3 "$PARSER" pane)"
@@ -83,7 +84,7 @@ if [[ -z "$reset_epoch" || "$scope" != "weekly" ]]; then
     send_line "/usage"
     sleep "$USAGE_PROBE_WAIT"
     usage_state="$(capture | python3 "$PARSER" usage)"
-    tmux send-keys -t "$SESSION" Escape 2>/dev/null || true
+    tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" Escape 2>/dev/null || true
     log "usage says: $usage_state"
     u_reset="$(jq -r '.reset_epoch // empty' <<<"$usage_state")"
     u_scope="$(jq -r .scope <<<"$usage_state")"

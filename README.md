@@ -86,8 +86,30 @@ entirely. Through tmux it's just:
 console
 ```
 
-in the web terminal. That `$SHELL` test is also why the image sets
-`SHELL=/bin/bash` — you land in bash rather than `sh`.
+in the web terminal.
+
+#### Controlling which shell Coolify opens
+
+That `$SHELL` test is the only lever, and it reads the **container's
+environment** — so set it in compose:
+
+```yaml
+environment:
+  SHELL: /bin/bash
+```
+
+The image already does this, which is why you land in bash rather than `sh`.
+Point it anywhere executable and Coolify will exec that instead.
+
+Two caveats:
+
+- `$SHELL` is not Coolify-specific. Claude Code's own shell tool reads it
+  too, so don't point it at something that isn't a real shell — attaching
+  the console this way would break Claude's ability to run commands.
+- Coolify's terminal arrives as **root**, since the image has no `USER`
+  directive (PID 1 must be root). Use `console` to attach to the session as
+  `claude`, or `runuser -u claude -- bash` for an ordinary unprivileged
+  shell. Root's `.bashrc` prints both as a reminder.
 
 ### Why tmux at all?
 
@@ -178,36 +200,75 @@ Claude Code splits its state across **two** locations:
 but onboarding, trust prompts and plugin state reset, which reads as
 "it didn't save my settings".
 
-So the volume covers the whole home directory:
+So the volume covers the whole home directory of the runtime user:
 
 ```yaml
 volumes:
-  - claude-home:/root
+  - claude-home:/home/claude
 ```
 
 Docker seeds a fresh named volume from the image's directory contents, so
 the caveman plugin installed at build time still lands in it on first start.
 
-### Upgrading from a `claude-config` volume
+### Upgrading from an older volume
 
-Before v0.3.0 the volume was named `claude-config` and mounted at
-`/root/.claude`. That volume holds `~/.claude`'s *contents* at its root, so
-reusing it at `/root` would put `agents/`, `.credentials.json` and friends
-directly in the home directory. The volume is renamed to `claude-home` to
-force a clean re-seed; you log in once more, and that's it.
+Before v0.3.0 the volume was `claude-config` mounted at `/root/.claude`;
+v0.3.0 used `claude-home` at `/root`. From v0.4.0 it is `claude-home` at
+`/home/claude`, because the session no longer runs as root.
 
-To keep the old credentials instead of logging in again:
+Coming from v0.3.0 the volume name is unchanged and the contents are the
+right shape, so it just works. Coming from `claude-config`, its contents are
+`~/.claude`'s at the volume root, so copy them into place:
 
 ```bash
 docker run --rm \
   -v claude-runner_claude-config:/from \
   -v claude-runner_claude-home:/to \
-  alpine sh -c 'mkdir -p /to/.claude && cp -a /from/. /to/.claude/'
+  alpine sh -c 'mkdir -p /to/.claude && cp -a /from/. /to/.claude/ && chown -R 1000:1000 /to'
 ```
 
 Adjust the `claude-runner_` prefix to your compose project name
-(`docker volume ls` to check). Note that `~/.claude.json` never existed in
-the old volume, so onboarding still runs once.
+(`docker volume ls` to check). `~/.claude.json` never existed in the old
+volume, so onboarding still runs once.
+
+## Running unprivileged
+
+Claude runs as an unprivileged `claude` user, not root.
+
+The reason that matters in practice is **file ownership on your bind
+mount**: a root-run Claude writing into `/workspace` leaves root-owned files
+in your project directory on the host. Set `PUID`/`PGID` to your own ids
+(`id -u` / `id -g`, usually 1000) and everything it writes is owned by you.
+
+The secondary reason is blast radius. No Docker socket is mounted, so
+there's no trivial escalation path, but container root is still uid 0 to the
+kernel, and with `--permission-mode acceptEdits` a root-run Claude could
+rewrite the very scripts supervising it.
+
+**PID 1 stays root** — it needs to be, to remap the user to `PUID`/`PGID`,
+chown the workspace and start cron. It drops to `claude` for the session
+itself. cron also stays root, but the watchdog does not: `/etc/cron.d`
+entries have a user column, so the job runs as `claude`.
+
+### Workspace ownership
+
+On every start, the entrypoint makes sure `PUID` can write to `/workspace`:
+
+| `CHOWN_WORKSPACE` | Behavior |
+|---|---|
+| `auto` (default) | `chown -R` only when the workspace's top-level owner isn't `PUID`. A recursive chown of a large project every start is expensive, so this skips it once it's correct. |
+| `always` | Force it on every start. |
+| `never` | Skip entirely — for read-only or NFS-backed mounts. |
+
+If the user still can't write there afterwards, the entrypoint says so
+rather than letting Claude fail confusingly later.
+
+### The tmux socket
+
+Because the session belongs to `claude` while health checks and `docker
+exec` arrive as root, tmux uses an explicit socket at `/run/claude/tmux.sock`
+rather than the per-uid default under `/tmp`. Every script agrees on it via
+`TMUX_SOCKET`.
 
 ## Health check
 
@@ -252,6 +313,9 @@ versions.
 | `CONTAINER_NAME` | `claude-console` | Container name |
 | `WORKSPACE_DIR` | `./workspace` | Host directory mounted at `/workspace` |
 | `TZ` | `UTC` | Container timezone; must match the times Claude prints |
+| `PUID` | `1000` | uid Claude runs as — match `id -u` so workspace files are yours |
+| `PGID` | `1000` | gid Claude runs as — match `id -g` |
+| `CHOWN_WORKSPACE` | `auto` | `auto` \| `always` \| `never` — see [Workspace ownership](#workspace-ownership) |
 | `CLAUDE_ARGS` | *(empty)* | Extra flags for the console's `claude` process |
 | `CLAUDE_TMUX_SESSION` | `claude` | tmux session name |
 | `WATCHDOG_ENABLED` | `true` | `false` removes the cron job entirely |

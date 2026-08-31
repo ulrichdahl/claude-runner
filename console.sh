@@ -9,11 +9,21 @@
 # Detach with Ctrl-b d. The session keeps running.
 set -euo pipefail
 SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+TMUX_SOCKET="${TMUX_SOCKET:-/run/claude/tmux.sock}"
+CLAUDE_USER="${CLAUDE_USER:-claude}"
 
-if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+# `docker exec` lands you here as root; the session belongs to the
+# unprivileged user, so drop to it rather than attaching as root.
+if [[ "$(id -un)" != "$CLAUDE_USER" ]] && [[ "$(id -u)" == "0" ]]; then
+  exec runuser -u "$CLAUDE_USER" -- env HOME="/home/$CLAUDE_USER" \
+    USER="$CLAUDE_USER" SHELL=/bin/bash TERM="${TERM:-xterm-256color}" \
+    "$0" "$@"
+fi
+
+if ! tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   echo "No console session '$SESSION'." >&2
   echo "PID 1 recreates it within ~30s; check: docker logs <container>" >&2
   exit 1
 fi
 
-exec tmux attach -t "$SESSION"
+exec tmux -S "$TMUX_SOCKET" attach -t "$SESSION"
