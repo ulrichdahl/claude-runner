@@ -133,6 +133,11 @@ Claude.
 own click-drag selection works, and `aggressive-resize` so the pane follows
 the client actually attached.
 
+The container also sets `LANG`/`LC_ALL` to `C.UTF-8` and passes `tmux -u`
+everywhere. Without a UTF-8 locale tmux runs in non-UTF-8 mode and drops the
+block glyphs Claude draws its interface with, so the logo and boxes come out
+as runs of dashes while running `claude` directly looks fine.
+
 One thing it deliberately does **not** do is disable the alternate screen.
 v0.1.1 did that so the terminal's native scrollback would capture the
 session; that is fine for a shell printing lines and wrong for a full-screen

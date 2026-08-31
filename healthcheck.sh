@@ -16,11 +16,11 @@ fail() { echo "UNHEALTHY: $*"; exit 1; }
 # 1. The console session exists. `claude` is the tmux session's command, so
 #    if Claude died the session goes with it (the entrypoint restarts it
 #    within ~30s, which is what start_period and retries absorb).
-tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null \
+tmux -u -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null \
   || fail "no tmux session '$SESSION'"
 
 # 2. The pane still has a live process attached.
-panes="$(tmux -S "$TMUX_SOCKET" list-panes -t "$SESSION" -F '#{pane_dead}' 2>/dev/null)"
+panes="$(tmux -u -S "$TMUX_SOCKET" list-panes -t "$SESSION" -F '#{pane_dead}' 2>/dev/null)"
 [[ -n "$panes" ]] || fail "session '$SESSION' has no panes"
 grep -qv '^1$' <<<"$panes" || fail "all panes in '$SESSION' are dead"
 

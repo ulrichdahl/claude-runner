@@ -28,8 +28,12 @@ if [[ "$PUID" != "$cur_uid" ]]; then
   usermod -o -u "$PUID" "$CLAUDE_USER"
 fi
 
+# LANG/LC_ALL matter: without a UTF-8 locale tmux runs in non-UTF-8 mode and
+# drops the block glyphs Claude draws its interface with.
 as_claude() { runuser -u "$CLAUDE_USER" -- env HOME="$CLAUDE_HOME" \
-                USER="$CLAUDE_USER" SHELL=/bin/bash "$@"; }
+                USER="$CLAUDE_USER" SHELL=/bin/bash \
+                LANG="${LANG:-C.UTF-8}" LC_ALL="${LC_ALL:-C.UTF-8}" \
+                TERM="${TERM:-xterm-256color}" "$@"; }
 
 # --- directories the unprivileged user must own ----------------------------
 mkdir -p "$WORKSPACE" "$CLAUDE_HOME/.claude" /var/lib/claude-watchdog \
@@ -157,14 +161,14 @@ fi
 
 # --- the console ------------------------------------------------------------
 start_console() {
-  as_claude tmux -S "$TMUX_SOCKET" new-session -d -s "$SESSION" -x 200 -y 50 \
+  as_claude tmux -u -S "$TMUX_SOCKET" new-session -d -s "$SESSION" -x 200 -y 50 \
     -c "$WORKSPACE" "claude ${CLAUDE_ARGS}"
   # Root (health check, `console` via docker exec) needs to reach the socket.
   chmod 0660 "$TMUX_SOCKET" 2>/dev/null || true
 }
 
 console_alive() {
-  as_claude tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null
+  as_claude tmux -u -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null
 }
 
 console_alive || start_console

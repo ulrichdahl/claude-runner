@@ -49,17 +49,17 @@ log() { echo "$(date -Iseconds) $*"; }
 now() { date +%s; }
 stamp_age() { local f=$1; [[ -f $f ]] && echo $(( $(now) - $(cat "$f") )) || echo 999999; }
 
-if ! tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
+if ! tmux -u -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   log "no tmux session '$SESSION' -- nothing to watch"
   exit 0
 fi
 
-capture() { tmux -S "$TMUX_SOCKET" capture-pane -p -S "-$PANE_LINES" -t "$SESSION"; }
+capture() { tmux -u -S "$TMUX_SOCKET" capture-pane -p -S "-$PANE_LINES" -t "$SESSION"; }
 
 send_line() {
-  tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" -l "$1"
+  tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" -l "$1"
   sleep 1
-  tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter
+  tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter
 }
 
 # --- source 1: the status line's usage file --------------------------------
@@ -130,7 +130,7 @@ if [[ -z "$reset_epoch" || "$scope" != "weekly" ]]; then
     send_line "/usage"
     sleep "$USAGE_PROBE_WAIT"
     usage_state="$(capture | python3 "$PARSER" usage)"
-    tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" Escape 2>/dev/null || true
+    tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" Escape 2>/dev/null || true
     log "usage says: $usage_state"
     u_reset="$(jq -r '.reset_epoch // empty' <<<"$usage_state")"
     u_scope="$(jq -r .scope <<<"$usage_state")"

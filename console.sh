@@ -17,13 +17,14 @@ CLAUDE_USER="${CLAUDE_USER:-claude}"
 if [[ "$(id -un)" != "$CLAUDE_USER" ]] && [[ "$(id -u)" == "0" ]]; then
   exec runuser -u "$CLAUDE_USER" -- env HOME="/home/$CLAUDE_USER" \
     USER="$CLAUDE_USER" SHELL=/bin/bash TERM="${TERM:-xterm-256color}" \
+    LANG="${LANG:-C.UTF-8}" LC_ALL="${LC_ALL:-C.UTF-8}" \
     "$0" "$@"
 fi
 
-if ! tmux -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
+if ! tmux -u -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   echo "No console session '$SESSION'." >&2
   echo "PID 1 recreates it within ~30s; check: docker logs <container>" >&2
   exit 1
 fi
 
-exec tmux -S "$TMUX_SOCKET" attach -t "$SESSION"
+exec tmux -u -S "$TMUX_SOCKET" attach -t "$SESSION"
