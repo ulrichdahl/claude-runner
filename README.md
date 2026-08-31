@@ -93,6 +93,11 @@ tmux copy-mode.
 docker exec -it claude-console bash
 ```
 
+The shell is bash throughout, not `sh`: it's root's login shell, it's what
+`$SHELL` points at (so anything that spawns a shell, Claude Code's shell
+tool included, gets bash), and it's tmux's `default-shell` for any new
+window or pane you open in the console.
+
 **Watch the watchdog:**
 
 ```bash

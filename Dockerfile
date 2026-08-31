@@ -12,7 +12,8 @@ FROM node:20-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     WORKSPACE=/workspace \
-    TZ=UTC
+    TZ=UTC \
+    SHELL=/bin/bash
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -30,11 +31,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip \
       python3-venv \
       ripgrep \
+      bash \
       tmux \
       tzdata \
       unzip \
       wget \
     && rm -rf /var/lib/apt/lists/*
+
+# bash for everything: root's login shell, $SHELL for anything that spawns
+# one (Claude Code's shell tool included), and tmux's default-shell below.
+RUN chsh -s /bin/bash root
 
 # python -> python3 (many tools assume the bare name exists)
 RUN ln -sf /usr/bin/python3 /usr/local/bin/python
