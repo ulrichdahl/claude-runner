@@ -60,8 +60,32 @@ docker exec -it claude-console claude
 docker exec -it claude-console tmux attach -t claude
 ```
 
-Detach with `Ctrl-b d` — *not* `Ctrl-C`, which would kill the session.
-Reattach as often as you like; it's always the same ongoing conversation.
+Detach with `Ctrl-b d`. The session keeps running — detaching sends it no
+signal — so reattach as often as you like and it's the same ongoing
+conversation.
+
+### Why tmux at all?
+
+Not for persistence: a bare `claude` as PID 1 with `docker attach` would
+survive a `Ctrl-P Ctrl-Q` detach just as well. tmux is there because the
+**watchdog** needs to read and drive the session:
+
+- `tmux capture-pane -p` renders the current screen as plain text, which is
+  what the limit parser reads. The alternative, `docker logs`, is an
+  append-only stream of ANSI cursor movements — Claude Code redraws in
+  place, so reconstructing the current screen from it isn't practical.
+- `tmux send-keys` injects `/usage` and `continue` from cron without
+  fighting an interactive session for the container's stdin.
+
+A side benefit: with `claude` as PID 1, a reflexive `Ctrl-C` while attached
+kills PID 1 and takes the container down. Inside tmux it just interrupts
+Claude.
+
+The usual tmux annoyances are configured away in `tmux.conf` (installed to
+`/etc/tmux.conf`): **mouse mode is off**, so your terminal's own click-drag
+selection and copy work normally, and the **alternate screen is disabled**,
+so your terminal's native scrollback and scroll wheel work instead of
+tmux copy-mode.
 
 **Get a maintenance shell** that doesn't disturb the console:
 
@@ -147,6 +171,7 @@ file; it also regenerates `/etc/cron.d/claude-watchdog` from
 | `entrypoint.sh` | PID 1 — starts cron, starts/keeps the tmux console, writes watchdog config |
 | `claude-watchdog.sh` | The 10-minute check; installed as `/usr/local/bin/claude-watchdog` |
 | `watchdog_parse.py` | Parses pane and `/usage` text into `{limited, scope, reset_epoch}` |
+| `tmux.conf` | Console ergonomics — mouse off, no alternate screen |
 | `docker-compose.yml` | All configuration |
 
 `watchdog_parse.py` is a standalone script you can test by hand:

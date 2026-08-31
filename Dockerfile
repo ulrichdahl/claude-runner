@@ -74,6 +74,10 @@ RUN claude plugin marketplace add JuliusBrussee/caveman \
     && claude plugin install caveman@caveman --yes \
     || echo "caveman install deferred to entrypoint"
 
+# Mouse off + no alternate screen, so an attached console keeps the
+# terminal's own selection/copy and scrollback. See tmux.conf.
+COPY tmux.conf /etc/tmux.conf
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY claude-watchdog.sh /usr/local/bin/claude-watchdog
 COPY watchdog_parse.py /usr/local/lib/watchdog_parse.py
