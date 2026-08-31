@@ -46,7 +46,8 @@ Then log in once:
 docker exec -it claude-console claude
 ```
 
-`~/.claude` is a named volume, so the login survives rebuilds.
+The whole of `/root` is a named volume, so the login and settings survive
+rebuilds — see [What persists](#what-persists).
 
 > **Set `TZ` to your real timezone.** The reset times Claude prints are
 > local, and the watchdog compares them against the container clock. Getting
@@ -163,6 +164,51 @@ permission prompts, set `CLAUDE_ARGS=--permission-mode acceptEdits` in
 `.env` and scope what gets auto-approved with a `.claude/settings.json` in
 the mounted workspace.
 
+## What persists
+
+Claude Code splits its state across **two** locations:
+
+| Path | Holds |
+|---|---|
+| `~/.claude/` | Credentials, plugins, session transcripts, `settings.json` |
+| `~/.claude.json` | Onboarding state, user id, per-project settings, marketplace/plugin flags |
+
+`~/.claude.json` is a sibling of the directory, not inside it. Mounting only
+`~/.claude` therefore loses it on every rebuild — the login token survives,
+but onboarding, trust prompts and plugin state reset, which reads as
+"it didn't save my settings".
+
+So the volume covers the whole home directory:
+
+```yaml
+volumes:
+  - claude-home:/root
+```
+
+Docker seeds a fresh named volume from the image's directory contents, so
+the caveman plugin installed at build time still lands in it on first start.
+
+### Upgrading from a `claude-config` volume
+
+Before v0.3.0 the volume was named `claude-config` and mounted at
+`/root/.claude`. That volume holds `~/.claude`'s *contents* at its root, so
+reusing it at `/root` would put `agents/`, `.credentials.json` and friends
+directly in the home directory. The volume is renamed to `claude-home` to
+force a clean re-seed; you log in once more, and that's it.
+
+To keep the old credentials instead of logging in again:
+
+```bash
+docker run --rm \
+  -v claude-runner_claude-config:/from \
+  -v claude-runner_claude-home:/to \
+  alpine sh -c 'mkdir -p /to/.claude && cp -a /from/. /to/.claude/'
+```
+
+Adjust the `claude-runner_` prefix to your compose project name
+(`docker volume ls` to check). Note that `~/.claude.json` never existed in
+the old volume, so onboarding still runs once.
+
 ## Health check
 
 The container reports health via `/usr/local/bin/claude-healthcheck`, which
@@ -272,3 +318,15 @@ a tick fires, your input and the watchdog's can interleave.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### If settings still reset under Coolify
+
+Coolify names volumes after the compose project. If a redeploy changes that
+name, you get a *new, empty* volume and everything looks reset. Check with:
+
+```bash
+docker volume ls | grep claude
+```
+
+Two of them means the name moved. Also confirm the resource isn't set to
+wipe volumes on redeploy in Coolify's storage settings.

@@ -52,8 +52,15 @@ services:
       # Drop this line entirely and the image still runs, just with an empty
       # workspace -- nothing in the image depends on a mount.
       - ${WORKSPACE_DIR:-./workspace}:/workspace
-      # Auth, plugins and settings persist across rebuilds.
-      - claude-config:/root/.claude
+      # The whole home directory, not just ~/.claude: Claude Code splits its
+      # state across ~/.claude/ (credentials, plugins, transcripts) AND the
+      # separate file ~/.claude.json (onboarding state, user id, per-project
+      # settings, marketplace flags). Mounting only ~/.claude silently loses
+      # the latter on every rebuild.
+      - claude-home:/root
 
 volumes:
-  claude-config:
+  # Renamed from claude-config, which was mounted at /root/.claude. A volume
+  # holding the old shape would land ~/.claude's contents directly in /root,
+  # so the new name forces a clean re-seed from the image. See README.
+  claude-home:

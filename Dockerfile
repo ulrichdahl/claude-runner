@@ -101,7 +101,10 @@ RUN echo '*/10 * * * * root /usr/local/bin/claude-watchdog >> /var/log/claude-wa
     && chmod 0644 /etc/cron.d/claude-watchdog \
     && touch /var/log/claude-watchdog.log
 
-RUN mkdir -p /workspace /var/lib/claude-watchdog
+# /root is a named volume at runtime. Docker seeds a fresh volume from the
+# image's directory contents, so the caveman plugin installed above and any
+# ~/.claude.json written at build time survive into it on first start.
+RUN mkdir -p /workspace /var/lib/claude-watchdog /root/.claude
 WORKDIR /workspace
 
 # Compose overrides this with its own healthcheck block; this is the default
