@@ -80,8 +80,10 @@ COPY tmux.conf /etc/tmux.conf
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY claude-watchdog.sh /usr/local/bin/claude-watchdog
+COPY healthcheck.sh /usr/local/bin/claude-healthcheck
 COPY watchdog_parse.py /usr/local/lib/watchdog_parse.py
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-watchdog
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-watchdog \
+      /usr/local/bin/claude-healthcheck
 
 # Default watchdog schedule. entrypoint.sh rewrites this file on every start
 # from WATCHDOG_INTERVAL_MIN (and deletes it when WATCHDOG_ENABLED=false), so
@@ -93,5 +95,10 @@ RUN echo '*/10 * * * * root /usr/local/bin/claude-watchdog >> /var/log/claude-wa
 
 RUN mkdir -p /workspace /var/lib/claude-watchdog
 WORKDIR /workspace
+
+# Compose overrides this with its own healthcheck block; this is the default
+# for anyone running the image with plain `docker run`.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+  CMD /usr/local/bin/claude-healthcheck
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

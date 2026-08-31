@@ -36,6 +36,17 @@ services:
       USAGE_PROBE_WAIT: ${USAGE_PROBE_WAIT:-8}
       # Lines of scrollback the watchdog inspects.
       PANE_LINES: ${PANE_LINES:-300}
+    healthcheck:
+      # Healthy means the console is alive and the watchdog can still fire.
+      # A session parked on a rate limit stays healthy on purpose -- that is
+      # the state the watchdog exists to recover from, not a fault.
+      test: ["CMD", "/usr/local/bin/claude-healthcheck"]
+      interval: ${HEALTHCHECK_INTERVAL:-60s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+      # The entrypoint restarts a dead console within ~30s, so allow a
+      # window before the first probe counts and a few retries after.
+      start_period: ${HEALTHCHECK_START_PERIOD:-60s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
     volumes:
       # Point WORKSPACE_DIR at whatever project you want in the container.
       # Drop this line entirely and the image still runs, just with an empty

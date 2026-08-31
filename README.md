@@ -134,6 +134,38 @@ permission prompts, set `CLAUDE_ARGS=--permission-mode acceptEdits` in
 `.env` and scope what gets auto-approved with a `.claude/settings.json` in
 the mounted workspace.
 
+## Health check
+
+The container reports health via `/usr/local/bin/claude-healthcheck`, which
+checks three things:
+
+1. The tmux console session exists. `claude` is that session's command, so
+   if Claude died the session goes with it.
+2. The session still has a live (non-dead) pane.
+3. `cron` is running and the watchdog cron entry is in place — otherwise the
+   auto-resume would never fire again. Skipped when `WATCHDOG_ENABLED=false`.
+
+**A session parked on a rate limit stays healthy on purpose.** That is the
+state the watchdog exists to recover from, not a fault. The probe reports it
+in the status output rather than failing:
+
+```
+$ docker inspect --format '{{.State.Health.Status}}' claude-console
+healthy
+
+$ docker inspect --format '{{(index .State.Health.Log 0).Output}}' claude-console
+OK (rate-limited, resuming 2026-09-01T03:00:00+02:00)
+```
+
+`start_period` is 60s because the entrypoint restarts a dead console within
+about 30 seconds; the probe shouldn't fail the container while that's
+happening.
+
+Note that `restart: unless-stopped` does **not** react to health status —
+Docker restarts on process exit, not on an unhealthy probe. The health
+status is there for you, for `docker ps`, and for orchestrators that do act
+on it.
+
 ## Configuration
 
 Everything is set from `.env` / `docker-compose.yml`. Runtime settings take
@@ -154,6 +186,10 @@ versions.
 | `NUDGE_MIN_INTERVAL` | `900` | Seconds between two resume nudges |
 | `USAGE_PROBE_WAIT` | `8` | Seconds to let `/usage` render before reading it |
 | `PANE_LINES` | `300` | Lines of scrollback the watchdog inspects |
+| `HEALTHCHECK_INTERVAL` | `60s` | Time between health probes |
+| `HEALTHCHECK_TIMEOUT` | `10s` | Per-probe timeout |
+| `HEALTHCHECK_START_PERIOD` | `60s` | Grace window before failures count |
+| `HEALTHCHECK_RETRIES` | `3` | Consecutive failures before unhealthy |
 | `GH_VERSION` | `2.63.2` | build arg — rebuild to change |
 | `GLAB_VERSION` | `1.52.0` | build arg — rebuild to change |
 
@@ -171,6 +207,7 @@ file; it also regenerates `/etc/cron.d/claude-watchdog` from
 | `entrypoint.sh` | PID 1 — starts cron, starts/keeps the tmux console, writes watchdog config |
 | `claude-watchdog.sh` | The 10-minute check; installed as `/usr/local/bin/claude-watchdog` |
 | `watchdog_parse.py` | Parses pane and `/usage` text into `{limited, scope, reset_epoch}` |
+| `healthcheck.sh` | Health probe; installed as `/usr/local/bin/claude-healthcheck` |
 | `tmux.conf` | Console ergonomics — mouse off, no alternate screen |
 | `docker-compose.yml` | All configuration |
 
