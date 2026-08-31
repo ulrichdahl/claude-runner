@@ -289,6 +289,20 @@ Adjust the `claude-runner_` prefix to your compose project name
 (`docker volume ls` to check). `~/.claude.json` never existed in the old
 volume, so onboarding still runs once.
 
+### Projects with hardcoded absolute paths
+
+If a project's scripts, docs or `.claude/settings.json` refer to an absolute
+path, mount it at that same path inside the container rather than rewriting
+them:
+
+```bash
+WORKSPACE_DIR=/srv/myproject                  # where it lives on the host
+WORKSPACE_PATH=/home/someone/Projects/myproject   # where it appeared before
+```
+
+Everything — chown, the console's working directory, the health check —
+follows `WORKSPACE_PATH`.
+
 ## Running unprivileged
 
 Claude runs as an unprivileged `claude` user, not root.
@@ -369,7 +383,8 @@ versions.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CONTAINER_NAME` | `claude-console` | Container name |
-| `WORKSPACE_DIR` | `./workspace` | Host directory mounted at `/workspace` |
+| `WORKSPACE_DIR` | `./workspace` | Host directory to mount |
+| `WORKSPACE_PATH` | `/workspace` | Where it appears inside the container |
 | `TZ` | `UTC` | Container timezone; must match the times Claude prints |
 | `PUID` | `1000` | uid Claude runs as — match `id -u` so workspace files are yours |
 | `PGID` | `1000` | gid Claude runs as — match `id -g` |

@@ -18,7 +18,10 @@ services:
       # Host timezone matters: the reset times Claude prints are local, and
       # the watchdog compares them against the container clock.
       TZ: ${TZ:-UTC}
-      WORKSPACE: /workspace
+      # Where the workspace appears INSIDE the container. Normally /workspace,
+      # but a project with absolute paths baked into its scripts or docs can
+      # be mounted at its original path instead, so nothing needs rewriting.
+      WORKSPACE: ${WORKSPACE_PATH:-/workspace}
 
       # --- runtime user ---
       # Claude runs unprivileged as these ids, so files it writes into the
@@ -75,7 +78,7 @@ services:
       # Point WORKSPACE_DIR at whatever project you want in the container.
       # Drop this line entirely and the image still runs, just with an empty
       # workspace -- nothing in the image depends on a mount.
-      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ${WORKSPACE_DIR:-./workspace}:${WORKSPACE_PATH:-/workspace}
       # The whole home directory, not just ~/.claude: Claude Code splits its
       # state across ~/.claude/ (credentials, plugins, transcripts) AND the
       # separate file ~/.claude.json (onboarding state, user id, per-project
