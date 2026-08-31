@@ -57,12 +57,36 @@ docker exec -it claude-console claude
 **Attach to the live console:**
 
 ```bash
-docker exec -it claude-console tmux attach -t claude
+docker exec -it claude-console console
 ```
+
+(`console` is a small wrapper for `tmux attach -t claude`; the long form
+works too.)
 
 Detach with `Ctrl-b d`. The session keeps running — detaching sends it no
 signal — so reattach as often as you like and it's the same ongoing
 conversation.
+
+### Web terminals (Coolify, Portainer, …)
+
+Web admin panels give you `docker exec`, not `docker attach` — Coolify's
+terminal runs:
+
+```
+docker exec -it <container> sh -c 'if [ -n "$SHELL" ] && [ -x "$SHELL" ]; then exec $SHELL; else sh; fi'
+```
+
+This is a good reason the session lives in tmux rather than being PID 1's
+own stdio: `exec` starts a *new* process and cannot join PID 1's streams, so
+a `docker attach`-style design would be unreachable from those panels
+entirely. Through tmux it's just:
+
+```
+console
+```
+
+in the web terminal. That `$SHELL` test is also why the image sets
+`SHELL=/bin/bash` — you land in bash rather than `sh`.
 
 ### Why tmux at all?
 
@@ -212,6 +236,7 @@ file; it also regenerates `/etc/cron.d/claude-watchdog` from
 | `entrypoint.sh` | PID 1 — starts cron, starts/keeps the tmux console, writes watchdog config |
 | `claude-watchdog.sh` | The 10-minute check; installed as `/usr/local/bin/claude-watchdog` |
 | `watchdog_parse.py` | Parses pane and `/usage` text into `{limited, scope, reset_epoch}` |
+| `console.sh` | One-word attach; installed as `/usr/local/bin/console` |
 | `healthcheck.sh` | Health probe; installed as `/usr/local/bin/claude-healthcheck` |
 | `tmux.conf` | Console ergonomics — mouse off, no alternate screen |
 | `docker-compose.yml` | All configuration |

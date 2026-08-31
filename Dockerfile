@@ -87,9 +87,11 @@ COPY tmux.conf /etc/tmux.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY claude-watchdog.sh /usr/local/bin/claude-watchdog
 COPY healthcheck.sh /usr/local/bin/claude-healthcheck
+# One-word attach, for web terminals that only give you `docker exec`.
+COPY console.sh /usr/local/bin/console
 COPY watchdog_parse.py /usr/local/lib/watchdog_parse.py
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-watchdog \
-      /usr/local/bin/claude-healthcheck
+      /usr/local/bin/claude-healthcheck /usr/local/bin/console
 
 # Default watchdog schedule. entrypoint.sh rewrites this file on every start
 # from WATCHDOG_INTERVAL_MIN (and deletes it when WATCHDOG_ENABLED=false), so
