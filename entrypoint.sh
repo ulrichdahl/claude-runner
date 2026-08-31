@@ -65,6 +65,52 @@ if ! as_claude test -w "$WORKSPACE"; then
   echo "WARN: ${CLAUDE_USER} cannot write to $WORKSPACE -- Claude will fail to edit files there"
 fi
 
+# --- status line -----------------------------------------------------------
+# The status line is what publishes usage to the watchdog, so it is installed
+# into settings.json rather than left to the user. Merged, not overwritten:
+# anything else already in that file is preserved. STATUSLINE_ENABLED=false
+# removes it again.
+settings_file="$CLAUDE_HOME/.claude/settings.json"
+STATUSLINE_ENABLED="${STATUSLINE_ENABLED:-true}"
+STATUSLINE_REFRESH_SECONDS="${STATUSLINE_REFRESH_SECONDS:-60}"
+
+python3 - "$settings_file" "$STATUSLINE_ENABLED" "$STATUSLINE_REFRESH_SECONDS" <<'PYSETTINGS'
+import json, os, sys
+
+path, enabled, refresh = sys.argv[1], sys.argv[2] == "true", sys.argv[3]
+
+try:
+    with open(path) as fh:
+        settings = json.load(fh)
+    if not isinstance(settings, dict):
+        settings = {}
+except (OSError, json.JSONDecodeError, ValueError):
+    settings = {}
+
+if enabled:
+    entry = {"type": "command", "command": "/usr/local/bin/claude-statusline"}
+    try:
+        n = int(refresh)
+        if n >= 1:
+            # Rate-limit windows change while the session sits idle, so don't
+            # rely on assistant messages alone to keep the file fresh.
+            entry["refreshInterval"] = n
+    except ValueError:
+        pass
+    settings["statusLine"] = entry
+else:
+    settings.pop("statusLine", None)
+
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(settings, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, path)
+PYSETTINGS
+chown "$PUID:$PGID" "$settings_file"
+echo "Status line: ${STATUSLINE_ENABLED} (refresh ${STATUSLINE_REFRESH_SECONDS}s) -> ${USAGE_STATE_FILE:-/var/lib/claude-watchdog/usage.json}"
+
 # --- caveman plugin --------------------------------------------------------
 # Idempotent: covers a fresh home volume that shadowed the build-time install.
 if ! as_claude claude plugin list 2>/dev/null | grep -q caveman; then
@@ -85,6 +131,8 @@ USAGE_PROBE_MIN_INTERVAL="${USAGE_PROBE_MIN_INTERVAL:-3600}"
 NUDGE_MIN_INTERVAL="${NUDGE_MIN_INTERVAL:-900}"
 USAGE_PROBE_WAIT="${USAGE_PROBE_WAIT:-8}"
 PANE_LINES="${PANE_LINES:-300}"
+USAGE_STATE_FILE="${USAGE_STATE_FILE:-/var/lib/claude-watchdog/usage.json}"
+USAGE_STATE_MAX_AGE="${USAGE_STATE_MAX_AGE:-1800}"
 TZ="${TZ:-UTC}"
 ENVFILE
 chmod 0644 /etc/claude-watchdog.env

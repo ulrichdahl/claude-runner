@@ -151,31 +151,78 @@ window or pane you open in the console.
 docker exec claude-console tail -f /var/log/claude-watchdog.log
 ```
 
+## Usage reporting
+
+Claude Code hands a configured **status line** command the full session JSON
+on stdin — including `rate_limits`, with the 5-hour and 7-day windows
+reported separately, each with a `used_percentage` and an exact `resets_at`
+epoch. The image wires up a status line that does two things with it:
+
+**1. Shows it.** Always visible at the bottom of the console:
+
+```
+Opus 5 | ctx 73% | session 24% →3h12m | week 91% →3d5h | $1.23
+```
+
+Percentages turn yellow past 70% and red past 90%.
+
+**2. Publishes it** to `/var/lib/claude-watchdog/usage.json`, written
+atomically so cron can read it at any moment:
+
+```json
+{
+  "written_at": 1788199883,
+  "windows": {
+    "five_hour": {"used_percentage": 23.5, "resets_at": 1788211403},
+    "seven_day": {"used_percentage": 91.2, "resets_at": 1788479883}
+  },
+  "model": "Opus 5"
+}
+```
+
+This is a much better watchdog input than reading the console: `resets_at`
+is exact rather than parsed out of prose, and session vs. weekly is stated
+rather than inferred.
+
+The status line runs on every assistant message, and on a timer
+(`STATUSLINE_REFRESH_SECONDS`, default 60) so the file keeps up while the
+session sits idle. It's installed by merging into
+`~/.claude/settings.json` — anything else in that file is preserved, and
+`STATUSLINE_ENABLED=false` removes it again.
+
+> `rate_limits` is only present for Claude.ai **Pro and Max** plans, and only
+> after the first API response in a session. Each window can be absent
+> independently, and Claude Code drops a window once its `resets_at` passes.
+> On other plans the status line shows `usage n/a` and the watchdog falls
+> back to reading the console.
+
 ## How the rate-limit watchdog works
 
 `/usr/local/bin/claude-watchdog` runs from cron every 10 minutes and logs to
-`/var/log/claude-watchdog.log`. Each tick:
+`/var/log/claude-watchdog.log`. It has three sources, and uses the best one
+available:
 
-1. **Capture the console pane.** If the tail doesn't show a usage-limit
-   stop, do nothing. Warnings like *"approaching your weekly limit"* or
-   *"12% remaining"* are explicitly not treated as a stop.
-2. **Find the reset time in the message.** Recognised formats include
-   `Claude AI usage limit reached|<epoch>`, ISO 8601 timestamps,
-   `resets 3:00am (Europe/Copenhagen)`, and `Resets Mon at 9am`.
-3. **Fall back to `/usage`** when the message has no reset time, or when it
-   doesn't say whether the limit was the 5-hour session window or the weekly
-   one. The watchdog types `/usage` into the console, waits for it to
-   render, and parses the result. This probe is rate-limited to once an
-   hour.
+**1. `usage.json` from the status line.** Structured and exact. A window
+counts as blocking when it's at 100% *and* still present — Claude Code drops
+a window once its `resets_at` passes, so a full window that's still there is
+genuinely still blocking. Ignored if the file is missing, malformed, or
+older than `USAGE_STATE_MAX_AGE` (default 30 min), in which case:
 
-   A weekly exhaustion outranks a session one. Resuming when the 5-hour
-   window reset but the weekly budget is gone would just stop again
-   immediately, so the watchdog waits for the weekly reset instead.
-4. **Store the reset time.** While it's still in the future, every tick is a
-   cheap no-op — no pane parsing beyond step 1, no `/usage` probe.
-5. **Resume.** Once the reset time has passed, type `continue` into the
-   console (override with `CONTINUE_TEXT`), then hold off at least 15
-   minutes before ever nudging again.
+**2. The console pane.** Parsed for a limit message. Recognised formats
+include `Claude AI usage limit reached|<epoch>`, ISO 8601 timestamps,
+`resets 3:00am (Europe/Copenhagen)` and `Resets Mon at 9am`. Warnings like
+*"approaching your weekly limit"* are explicitly not treated as a stop.
+
+**3. Typing `/usage` into the console**, when the pane text has no reset time
+or doesn't distinguish session from weekly. Rate-limited to once an hour.
+
+In all three, **the 7-day window outranks the 5-hour one.** Resuming when
+the short window reset but the weekly budget is gone would just stop again.
+
+Once a reset time is known it's stored, so every tick until then is a cheap
+no-op. When it passes, the watchdog types `continue` into the console
+(override with `CONTINUE_TEXT`) and then holds off at least 15 minutes
+before nudging again.
 
 State lives in `/var/lib/claude-watchdog/`.
 
@@ -320,6 +367,10 @@ versions.
 | `CLAUDE_TMUX_SESSION` | `claude` | tmux session name |
 | `WATCHDOG_ENABLED` | `true` | `false` removes the cron job entirely |
 | `WATCHDOG_INTERVAL_MIN` | `10` | Watchdog cron interval, 1–59 minutes |
+| `STATUSLINE_ENABLED` | `true` | `false` removes the status line from settings.json |
+| `STATUSLINE_REFRESH_SECONDS` | `60` | Also re-run the status line on this timer |
+| `USAGE_STATE_FILE` | `/var/lib/claude-watchdog/usage.json` | Where usage is published |
+| `USAGE_STATE_MAX_AGE` | `1800` | Seconds before that file is considered stale |
 | `CONTINUE_TEXT` | `continue` | What the watchdog types on resume |
 | `USAGE_PROBE_MIN_INTERVAL` | `3600` | Seconds between two `/usage` probes |
 | `NUDGE_MIN_INTERVAL` | `900` | Seconds between two resume nudges |
@@ -345,6 +396,8 @@ file; it also regenerates `/etc/cron.d/claude-watchdog` from
 | `Dockerfile` | Image: tools, Claude Code, caveman plugin, default cron entry |
 | `entrypoint.sh` | PID 1 — starts cron, starts/keeps the tmux console, writes watchdog config |
 | `claude-watchdog.sh` | The 10-minute check; installed as `/usr/local/bin/claude-watchdog` |
+| `statusline.py` | Status line; renders usage and publishes `usage.json`. Installed as `/usr/local/bin/claude-statusline` |
+| `usage_state.py` | Reads `usage.json` for the watchdog, with staleness handling |
 | `watchdog_parse.py` | Parses pane and `/usage` text into `{limited, scope, reset_epoch}` |
 | `console.sh` | One-word attach; installed as `/usr/local/bin/console` |
 | `healthcheck.sh` | Health probe; installed as `/usr/local/bin/claude-healthcheck` |

@@ -5,16 +5,22 @@
 # from docker-compose are read back from the file the entrypoint wrote
 # rather than inherited.
 #
-# Watches the live tmux console. If Claude stopped because it hit a usage
-# limit, work out when that window resets and, once the reset time has
-# passed, type "continue" into the same console so the run picks back up.
+# Watches the live console. If Claude stopped because it hit a usage limit,
+# work out when that window resets and, once the reset time has passed, type
+# "continue" into the same console so the run picks back up.
 #
-# Reset time comes from the console text when Claude printed one. When it
-# didn't -- or when the message doesn't say whether the limit was the 5-hour
-# session window or the weekly one -- the watchdog runs `/usage` in the
-# console and reads the answer out of that instead. The weekly window wins
-# when both are exhausted: resuming on a session reset while the weekly
-# budget is gone would just stop again immediately.
+# Three sources, best first:
+#
+#   1. /var/lib/claude-watchdog/usage.json, written by the status line on
+#      every assistant message. Structured and exact: `resets_at` is an
+#      epoch and the 5-hour and 7-day windows are reported separately, so
+#      there is no guessing which one stopped the session. Requires a
+#      Claude.ai Pro or Max plan and at least one API response.
+#   2. The console pane text, parsed for a limit message.
+#   3. Typing `/usage` into the console and parsing what comes back.
+#
+# The 7-day window outranks the 5-hour one wherever both are known: resuming
+# on a session reset while the weekly budget is gone would just stop again.
 set -uo pipefail
 
 # Written by entrypoint.sh from the container environment.
@@ -28,6 +34,9 @@ SCOPE_FILE="$STATE_DIR/scope"           # session | weekly
 LAST_USAGE="$STATE_DIR/last_usage_probe"
 LAST_NUDGE="$STATE_DIR/last_nudge"
 PARSER=/usr/local/lib/watchdog_parse.py
+USAGE_READER=/usr/local/lib/usage_state.py
+USAGE_STATE_FILE="${USAGE_STATE_FILE:-$STATE_DIR/usage.json}"
+export USAGE_STATE_FILE
 
 USAGE_PROBE_MIN_INTERVAL="${USAGE_PROBE_MIN_INTERVAL:-3600}"  # /usage at most hourly
 NUDGE_MIN_INTERVAL="${NUDGE_MIN_INTERVAL:-900}"               # 15 min between nudges
@@ -53,6 +62,42 @@ send_line() {
   tmux -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter
 }
 
+# --- source 1: the status line's usage file --------------------------------
+usage_file_state="$(python3 "$USAGE_READER" 2>/dev/null || echo '{}')"
+if [[ "$(jq -r '.usable // false' <<<"$usage_file_state")" == "true" ]]; then
+  file_limited="$(jq -r .limited <<<"$usage_file_state")"
+  file_reason="$(jq -r .reason <<<"$usage_file_state")"
+
+  if [[ "$file_limited" != "true" ]]; then
+    rm -f "$RESUME_AT" "$SCOPE_FILE"
+    exit 0
+  fi
+
+  scope="$(jq -r .scope <<<"$usage_file_state")"
+  reset_epoch="$(jq -r '.reset_epoch // empty' <<<"$usage_file_state")"
+  echo "$reset_epoch" > "$RESUME_AT"
+  echo "$scope" > "$SCOPE_FILE"
+
+  if (( reset_epoch > $(now) )); then
+    log "limited (${scope}, from usage file: ${file_reason}) until $(date -d "@$reset_epoch" -Iseconds), waiting"
+    exit 0
+  fi
+
+  if (( $(stamp_age "$LAST_NUDGE") < NUDGE_MIN_INTERVAL )); then
+    log "already nudged $(stamp_age "$LAST_NUDGE")s ago, holding off"
+    exit 0
+  fi
+
+  log "${scope} window reset (usage file) -- telling the console to continue"
+  send_line "$CONTINUE_TEXT"
+  date +%s > "$LAST_NUDGE"
+  rm -f "$RESUME_AT" "$SCOPE_FILE"
+  exit 0
+fi
+
+log "usage file not usable ($(jq -r '.reason // "unknown"' <<<"$usage_file_state")) -- falling back to reading the console"
+
+# --- source 2: the console pane --------------------------------------------
 state="$(capture | python3 "$PARSER" pane)"
 limited="$(jq -r .limited <<<"$state")"
 scope="$(jq -r .scope <<<"$state")"
@@ -74,6 +119,7 @@ if [[ -f "$RESUME_AT" ]]; then
   fi
 fi
 
+# --- source 3: type /usage into the console --------------------------------
 # Console didn't tell us enough: ask /usage. Also do this when the console
 # only said "session" -- the message alone can't rule out the weekly window
 # being the real blocker.

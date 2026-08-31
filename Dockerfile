@@ -116,8 +116,13 @@ COPY healthcheck.sh /usr/local/bin/claude-healthcheck
 # One-word attach, for web terminals that only give you `docker exec`.
 COPY console.sh /usr/local/bin/console
 COPY watchdog_parse.py /usr/local/lib/watchdog_parse.py
+COPY usage_state.py /usr/local/lib/usage_state.py
+# Publishes the rate-limit windows the watchdog reads, and renders them in
+# the status line. Wired into settings.json by entrypoint.sh.
+COPY statusline.py /usr/local/bin/claude-statusline
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/claude-watchdog \
-      /usr/local/bin/claude-healthcheck /usr/local/bin/console
+      /usr/local/bin/claude-healthcheck /usr/local/bin/console \
+      /usr/local/bin/claude-statusline
 
 # Default watchdog schedule. entrypoint.sh rewrites this file on every start
 # from WATCHDOG_INTERVAL_MIN (and deletes it when WATCHDOG_ENABLED=false), so

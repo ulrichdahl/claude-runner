@@ -37,6 +37,17 @@ services:
       CLAUDE_ARGS: ${CLAUDE_ARGS:-}
       CLAUDE_TMUX_SESSION: ${CLAUDE_TMUX_SESSION:-claude}
 
+      # --- status line / usage reporting ---
+      # The status line renders the 5-hour and 7-day usage windows AND
+      # publishes them to USAGE_STATE_FILE, which is the watchdog's primary
+      # source. Disabling it falls the watchdog back to console scraping.
+      STATUSLINE_ENABLED: ${STATUSLINE_ENABLED:-true}
+      # Also re-run on a timer, since windows move while the session is idle.
+      STATUSLINE_REFRESH_SECONDS: ${STATUSLINE_REFRESH_SECONDS:-60}
+      USAGE_STATE_FILE: ${USAGE_STATE_FILE:-/var/lib/claude-watchdog/usage.json}
+      # Older than this and the file is ignored as possibly out of date.
+      USAGE_STATE_MAX_AGE: ${USAGE_STATE_MAX_AGE:-1800}
+
       # --- rate-limit watchdog ---
       WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-true}
       WATCHDOG_INTERVAL_MIN: ${WATCHDOG_INTERVAL_MIN:-10}
