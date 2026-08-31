@@ -292,16 +292,38 @@ volume, so onboarding still runs once.
 ### Projects with hardcoded absolute paths
 
 If a project's scripts, docs or `.claude/settings.json` refer to an absolute
-path, mount it at that same path inside the container rather than rewriting
-them:
+path, set `WORKSPACE_ALIAS` to it. The entrypoint symlinks that path to the
+workspace and starts the console there, so every baked-in path resolves and
+nothing needs rewriting:
 
 ```bash
-WORKSPACE_DIR=/srv/myproject                  # where it lives on the host
-WORKSPACE_PATH=/home/someone/Projects/myproject   # where it appeared before
+WORKSPACE_ALIAS=/home/someone/Projects/myproject
 ```
 
-Everything — chown, the console's working directory, the health check —
-follows `WORKSPACE_PATH`.
+It's a symlink rather than a second mount on purpose — see the Coolify note
+below.
+
+### Platforms that manage your compose file
+
+Some platforms validate the compose file they deploy and **reject variable
+substitution inside a volume definition**. Coolify does; it fails with:
+
+```
+Invalid volume target: contains forbidden character '${'
+```
+
+If yours does, replace the volume line with literal paths:
+
+```yaml
+volumes:
+  - /srv/myproject:/workspace
+  - claude-home:/home/claude
+```
+
+Everything else stays an ordinary environment variable, which those
+platforms are happy with. This is also why hardcoded project paths are
+handled with `WORKSPACE_ALIAS` rather than by mounting at a configurable
+target.
 
 ## Running unprivileged
 
@@ -383,8 +405,8 @@ versions.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CONTAINER_NAME` | `claude-console` | Container name |
-| `WORKSPACE_DIR` | `./workspace` | Host directory to mount |
-| `WORKSPACE_PATH` | `/workspace` | Where it appears inside the container |
+| `WORKSPACE_DIR` | `./workspace` | Host directory to mount at `/workspace` |
+| `WORKSPACE_ALIAS` | *(empty)* | Extra in-container path symlinked to the workspace, for projects with baked-in absolute paths |
 | `TZ` | `UTC` | Container timezone; must match the times Claude prints |
 | `PUID` | `1000` | uid Claude runs as — match `id -u` so workspace files are yours |
 | `PGID` | `1000` | gid Claude runs as — match `id -g` |

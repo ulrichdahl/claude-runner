@@ -7,6 +7,7 @@
 set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/workspace}"
+WORKSPACE_ALIAS="${WORKSPACE_ALIAS:-}"
 SESSION="${CLAUDE_TMUX_SESSION:-claude}"
 CLAUDE_ARGS="${CLAUDE_ARGS:-}"
 CLAUDE_USER="${CLAUDE_USER:-claude}"
@@ -64,6 +65,20 @@ case "$chown_mode" in
     fi
     ;;
 esac
+
+# A project whose scripts and settings hardcode an absolute path can be
+# reached at that path without rewriting any of them. A symlink rather than a
+# second mount, because platforms that manage the compose file for you often
+# forbid variables in a volume target.
+if [[ -n "$WORKSPACE_ALIAS" && "$WORKSPACE_ALIAS" != "$WORKSPACE" ]]; then
+  if [[ -e "$WORKSPACE_ALIAS" && ! -L "$WORKSPACE_ALIAS" ]]; then
+    echo "WARN: $WORKSPACE_ALIAS exists and is not a symlink -- leaving it alone"
+  else
+    mkdir -p "$(dirname "$WORKSPACE_ALIAS")"
+    ln -sfn "$WORKSPACE" "$WORKSPACE_ALIAS"
+    echo "Workspace also reachable at $WORKSPACE_ALIAS -> $WORKSPACE"
+  fi
+fi
 
 if ! as_claude test -w "$WORKSPACE"; then
   echo "WARN: ${CLAUDE_USER} cannot write to $WORKSPACE -- Claude will fail to edit files there"
@@ -162,7 +177,7 @@ fi
 # --- the console ------------------------------------------------------------
 start_console() {
   as_claude tmux -u -S "$TMUX_SOCKET" new-session -d -s "$SESSION" -x 200 -y 50 \
-    -c "$WORKSPACE" "claude ${CLAUDE_ARGS}"
+    -c "${WORKSPACE_ALIAS:-$WORKSPACE}" "claude ${CLAUDE_ARGS}"
   # Root (health check, `console` via docker exec) needs to reach the socket.
   chmod 0660 "$TMUX_SOCKET" 2>/dev/null || true
 }

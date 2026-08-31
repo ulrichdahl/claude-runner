@@ -18,10 +18,12 @@ services:
       # Host timezone matters: the reset times Claude prints are local, and
       # the watchdog compares them against the container clock.
       TZ: ${TZ:-UTC}
-      # Where the workspace appears INSIDE the container. Normally /workspace,
-      # but a project with absolute paths baked into its scripts or docs can
-      # be mounted at its original path instead, so nothing needs rewriting.
-      WORKSPACE: ${WORKSPACE_PATH:-/workspace}
+      WORKSPACE: /workspace
+      # A project with absolute paths baked into its scripts, docs or
+      # .claude/settings.json can be reached at its original path without
+      # rewriting anything: the entrypoint symlinks this to /workspace.
+      # Leave empty for normal projects.
+      WORKSPACE_ALIAS: ${WORKSPACE_ALIAS:-}
 
       # --- runtime user ---
       # Claude runs unprivileged as these ids, so files it writes into the
@@ -78,7 +80,10 @@ services:
       # Point WORKSPACE_DIR at whatever project you want in the container.
       # Drop this line entirely and the image still runs, just with an empty
       # workspace -- nothing in the image depends on a mount.
-      - ${WORKSPACE_DIR:-./workspace}:${WORKSPACE_PATH:-/workspace}
+      # NOTE: some platforms (Coolify) reject variable substitution anywhere
+      # in a volume definition. If yours does, replace this whole line with
+      # literal paths, e.g.  - /srv/myproject:/workspace
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
       # The whole home directory, not just ~/.claude: Claude Code splits its
       # state across ~/.claude/ (credentials, plugins, transcripts) AND the
       # separate file ~/.claude.json (onboarding state, user id, per-project
