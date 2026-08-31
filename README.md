@@ -128,11 +128,17 @@ A side benefit: with `claude` as PID 1, a reflexive `Ctrl-C` while attached
 kills PID 1 and takes the container down. Inside tmux it just interrupts
 Claude.
 
-The usual tmux annoyances are configured away in `tmux.conf` (installed to
-`/etc/tmux.conf`): **mouse mode is off**, so your terminal's own click-drag
-selection and copy work normally, and the **alternate screen is disabled**,
-so your terminal's native scrollback and scroll wheel work instead of
-tmux copy-mode.
+`tmux.conf` (installed to `/etc/tmux.conf`) keeps the console looking right:
+**truecolor** via `tmux-256color` + `RGB`, **mouse off** so your terminal's
+own click-drag selection works, and `aggressive-resize` so the pane follows
+the client actually attached.
+
+One thing it deliberately does **not** do is disable the alternate screen.
+v0.1.1 did that so the terminal's native scrollback would capture the
+session; that is fine for a shell printing lines and wrong for a full-screen
+TUI, because Claude's repaints land in the scrollback buffer and the display
+smears. v0.5.1 reverted it. Scroll back with tmux copy-mode (`Ctrl-b [`,
+`q` to leave).
 
 **Get a maintenance shell** that doesn't disturb the console:
 

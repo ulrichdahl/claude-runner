@@ -14,6 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     WORKSPACE=/workspace \
     TZ=UTC \
     SHELL=/bin/bash \
+    COLORTERM=truecolor \
     CLAUDE_USER=claude \
     HOME=/home/claude \
     TMUX_SOCKET=/run/claude/tmux.sock
@@ -33,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
       python3-pip \
       python3-venv \
+      ncurses-term \
       ripgrep \
       bash \
       tmux \
@@ -97,8 +99,8 @@ RUN runuser -u claude -- env HOME=/home/claude \
                && claude plugin install caveman@caveman --yes' \
     || echo "caveman install deferred to entrypoint"
 
-# Mouse off + no alternate screen, so an attached console keeps the
-# terminal's own selection/copy and scrollback. See tmux.conf.
+# Truecolor, mouse off, alternate screen left ON -- Claude Code is a
+# redrawing TUI and breaks without it. See tmux.conf.
 COPY tmux.conf /etc/tmux.conf
 
 # Web terminals (Coolify, Portainer) `docker exec` in as root and exec $SHELL,
