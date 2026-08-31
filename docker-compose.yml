@@ -1,0 +1,48 @@
+services:
+  claude:
+    build:
+      context: .
+      args:
+        # Tool versions are build-time, so they belong here rather than in
+        # `environment:` -- change one and rebuild.
+        GH_VERSION: ${GH_VERSION:-2.63.2}
+        GLAB_VERSION: ${GLAB_VERSION:-1.52.0}
+    image: claude-console:latest
+    container_name: ${CONTAINER_NAME:-claude-console}
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    environment:
+      # Host timezone matters: the reset times Claude prints are local, and
+      # the watchdog compares them against the container clock.
+      TZ: ${TZ:-UTC}
+      WORKSPACE: /workspace
+
+      # --- console ---
+      # Extra flags for the console's claude process,
+      # e.g. "--permission-mode acceptEdits"
+      CLAUDE_ARGS: ${CLAUDE_ARGS:-}
+      CLAUDE_TMUX_SESSION: ${CLAUDE_TMUX_SESSION:-claude}
+
+      # --- rate-limit watchdog ---
+      WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-true}
+      WATCHDOG_INTERVAL_MIN: ${WATCHDOG_INTERVAL_MIN:-10}
+      # What gets typed into the console once the limit window has reset.
+      CONTINUE_TEXT: ${CONTINUE_TEXT:-continue}
+      # Floor between two `/usage` probes, and between two nudges (seconds).
+      USAGE_PROBE_MIN_INTERVAL: ${USAGE_PROBE_MIN_INTERVAL:-3600}
+      NUDGE_MIN_INTERVAL: ${NUDGE_MIN_INTERVAL:-900}
+      # Seconds to let `/usage` render before reading the pane back.
+      USAGE_PROBE_WAIT: ${USAGE_PROBE_WAIT:-8}
+      # Lines of scrollback the watchdog inspects.
+      PANE_LINES: ${PANE_LINES:-300}
+    volumes:
+      # Point WORKSPACE_DIR at whatever project you want in the container.
+      # Drop this line entirely and the image still runs, just with an empty
+      # workspace -- nothing in the image depends on a mount.
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      # Auth, plugins and settings persist across rebuilds.
+      - claude-config:/root/.claude
+
+volumes:
+  claude-config:
