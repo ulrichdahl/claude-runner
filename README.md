@@ -216,8 +216,10 @@ available:
 **1. `usage.json` from the status line.** Structured and exact. A window
 counts as blocking when it's at 100% *and* still present — Claude Code drops
 a window once its `resets_at` passes, so a full window that's still there is
-genuinely still blocking. Ignored if the file is missing, malformed, or
-older than `USAGE_STATE_MAX_AGE` (default 30 min), in which case:
+genuinely still blocking. Handed over to the next source if the file is
+missing, malformed, older than `USAGE_STATE_MAX_AGE` (default 30 min), **or
+reports no windows at all** — an empty `rate_limits` means the status line
+had nothing to say, not that nothing is blocking.
 
 **2. The console pane.** Parsed for a limit message. Recognised formats
 include `Claude AI usage limit reached|<epoch>`, ISO 8601 timestamps,
@@ -419,6 +421,7 @@ versions.
 | `STATUSLINE_REFRESH_SECONDS` | `60` | Also re-run the status line on this timer |
 | `USAGE_STATE_FILE` | `/var/lib/claude-watchdog/usage.json` | Where usage is published |
 | `USAGE_STATE_MAX_AGE` | `1800` | Seconds before that file is considered stale |
+| `WATCHDOG_HEARTBEAT` | `true` | Log a line every tick, so an empty log is unambiguous |
 | `CONTINUE_TEXT` | `continue` | What the watchdog types on resume |
 | `USAGE_PROBE_MIN_INTERVAL` | `3600` | Seconds between two `/usage` probes |
 | `NUDGE_MIN_INTERVAL` | `900` | Seconds between two resume nudges |

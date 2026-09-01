@@ -55,9 +55,11 @@ def main():
 
     windows = data.get("windows") or {}
     if not windows:
-        # Present and fresh, but no windows: not a Pro/Max plan, or no API
-        # response yet. Authoritative that nothing is blocking.
-        out(usable=True, age=age, reason="no rate-limit windows reported")
+        # Fresh, but with nothing to say: not a Pro/Max plan, no API response
+        # yet, or a Claude Code too old to report rate_limits. This is NOT
+        # evidence that nothing is blocking -- treating it as such makes a
+        # real limit stop invisible -- so hand over to the console parser.
+        out(age=age, reason="no rate-limit windows reported")
 
     now = int(time.time())
 

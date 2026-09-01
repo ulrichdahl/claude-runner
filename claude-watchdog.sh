@@ -49,6 +49,11 @@ log() { echo "$(date -Iseconds) $*"; }
 now() { date +%s; }
 stamp_age() { local f=$1; [[ -f $f ]] && echo $(( $(now) - $(cat "$f") )) || echo 999999; }
 
+# One line per tick, always. An empty log then means cron never ran, which is
+# a different problem from the watchdog running and finding nothing.
+HEARTBEAT="${WATCHDOG_HEARTBEAT:-true}"
+beat() { [[ "$HEARTBEAT" == "true" ]] && log "tick: $*"; return 0; }
+
 if ! tmux -u -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   log "no tmux session '$SESSION' -- nothing to watch"
   exit 0
@@ -69,6 +74,7 @@ if [[ "$(jq -r '.usable // false' <<<"$usage_file_state")" == "true" ]]; then
   file_reason="$(jq -r .reason <<<"$usage_file_state")"
 
   if [[ "$file_limited" != "true" ]]; then
+    beat "not limited (usage file: ${file_reason})"
     rm -f "$RESUME_AT" "$SCOPE_FILE"
     exit 0
   fi
@@ -105,6 +111,7 @@ reset_epoch="$(jq -r '.reset_epoch // empty' <<<"$state")"
 
 if [[ "$limited" != "true" ]]; then
   # Console is not sitting on a limit message. Any pending resume is moot.
+  beat "not limited (console shows no limit message)"
   rm -f "$RESUME_AT" "$SCOPE_FILE"
   exit 0
 fi

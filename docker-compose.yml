@@ -57,6 +57,8 @@ services:
       WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-true}
       WATCHDOG_INTERVAL_MIN: ${WATCHDOG_INTERVAL_MIN:-10}
       # What gets typed into the console once the limit window has reset.
+      # One log line per tick, so an empty log means cron never ran.
+      WATCHDOG_HEARTBEAT: ${WATCHDOG_HEARTBEAT:-true}
       CONTINUE_TEXT: ${CONTINUE_TEXT:-continue}
       # Floor between two `/usage` probes, and between two nudges (seconds).
       USAGE_PROBE_MIN_INTERVAL: ${USAGE_PROBE_MIN_INTERVAL:-3600}
