@@ -115,7 +115,11 @@ def main():
 
     model = (data.get("model") or {}).get("display_name")
     if model:
-        parts.append(f"{CYAN}{model}{RESET}")
+        seg = f"{CYAN}{model}{RESET}"
+        effort = (data.get("effort") or {}).get("level")
+        if effort:
+            seg += f" {DIM}({effort}){RESET}"
+        parts.append(seg)
 
     ctx = data.get("context_window") or {}
     used = ctx.get("used_percentage")
