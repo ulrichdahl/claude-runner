@@ -61,7 +61,29 @@ fi
 
 capture() { tmux -u -S "$TMUX_SOCKET" capture-pane -p -S "-$PANE_LINES" -t "$SESSION"; }
 
+# Anything already sitting unsent in Claude's input box would be submitted
+# along with whatever we type. That is not hypothetical: a box left holding
+# `kill -TERM -$$ && exit` would be handed to Claude as a prompt. Clear the
+# box first -- Ctrl-U repeatedly, since the leftover may span several lines.
+#
+# Ctrl-U, not Escape: Escape interrupts whatever Claude is doing, and we may
+# be typing while it is mid-task.
+clear_input() {
+  local i
+  for i in $(seq "${CLEAR_INPUT_STROKES:-8}"); do
+    tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" C-u
+  done
+  sleep 0.5
+}
+
 send_line() {
+  local before after
+  before="$(capture | tail -20)"
+  clear_input
+  after="$(capture | tail -20)"
+  if [[ "$before" != "$after" ]]; then
+    log "cleared leftover text from the input box before typing"
+  fi
   tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" -l "$1"
   sleep 1
   tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter

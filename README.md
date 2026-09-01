@@ -237,6 +237,12 @@ no-op. When it passes, the watchdog types `continue` into the console
 (override with `CONTINUE_TEXT`) and then holds off at least 15 minutes
 before nudging again.
 
+Before typing, it **clears Claude's input box** with repeated `Ctrl-U`.
+Anything left sitting unsent there would otherwise be submitted along with
+the nudge — and a box holding, say, `kill -TERM -$$ && exit` would be handed
+to Claude as a prompt. `Ctrl-U` rather than `Escape`, because `Escape`
+interrupts whatever Claude is doing.
+
 State lives in `/var/lib/claude-watchdog/`.
 
 ### Unattended runs
@@ -423,6 +429,7 @@ versions.
 | `USAGE_STATE_MAX_AGE` | `1800` | Seconds before that file is considered stale |
 | `WATCHDOG_HEARTBEAT` | `true` | Log a line every tick, so an empty log is unambiguous |
 | `CONTINUE_TEXT` | `continue` | What the watchdog types on resume |
+| `CLEAR_INPUT_STROKES` | `8` | `Ctrl-U` presses used to clear the input box first |
 | `USAGE_PROBE_MIN_INTERVAL` | `3600` | Seconds between two `/usage` probes |
 | `NUDGE_MIN_INTERVAL` | `900` | Seconds between two resume nudges |
 | `USAGE_PROBE_WAIT` | `8` | Seconds to let `/usage` render before reading it |

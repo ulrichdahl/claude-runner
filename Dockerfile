@@ -16,6 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SHELL=/bin/bash \
     COLORTERM=truecolor \
     LANG=C.UTF-8 \
+    DISABLE_AUTOUPDATER=1 \
     LC_ALL=C.UTF-8 \
     CLAUDE_USER=claude \
     HOME=/home/claude \
@@ -91,6 +92,11 @@ RUN curl -fsSL https://sentry.io/get-cli/ | INSTALL_DIR=/usr/local/bin bash \
     && sentry-cli --version
 
 # Claude Code
+# DISABLE_AUTOUPDATER (set above): npm's global prefix is root-owned and the
+# session runs unprivileged, so every start otherwise logs
+# "Auto-update failed: no write permission to npm prefix". Updating a
+# container by self-mutating its own image is the wrong model anyway --
+# rebuild to get a newer Claude Code.
 RUN npm install -g @anthropic-ai/claude-code && claude --version
 
 # Caveman plugin: baked into the image so a fresh container starts with it
