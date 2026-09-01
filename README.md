@@ -221,6 +221,12 @@ missing, malformed, older than `USAGE_STATE_MAX_AGE` (default 30 min), **or
 reports no windows at all** — an empty `rate_limits` means the status line
 had nothing to say, not that nothing is blocking.
 
+Parsed reset times are sanity-checked against the window they belong to: a
+5-hour window cannot reset more than 6 hours out, a weekly one not more than
+8 days. A parse beyond that is discarded as wrong rather than acted on — a
+bare clock time that has already passed today used to roll forward a full
+day, committing the watchdog to a 23-hour wait for a 5-hour window.
+
 **2. The console pane.** Parsed for a limit message. Recognised formats
 include `Claude AI usage limit reached|<epoch>`, ISO 8601 timestamps,
 `resets 3:00am (Europe/Copenhagen)` and `Resets Mon at 9am`. Warnings like
@@ -231,6 +237,17 @@ or doesn't distinguish session from weekly. Rate-limited to once an hour.
 
 In all three, **the 7-day window outranks the 5-hour one.** Resuming when
 the short window reset but the weekly budget is gone would just stop again.
+
+**A recorded reset time outranks all three sources.** This matters more than
+it sounds: Claude Code drops a rate-limit window from its payload the moment
+that window resets, so at exactly the time being waited for, the evidence
+that the session was ever limited disappears. Treating that as "not limited
+any more, nothing to do" leaves the session stopped forever — the window
+resetting does not restart Claude, somebody still has to type. So the stored
+resume time is only discarded once a nudge has actually been sent.
+
+A stored estimate is replaced whenever a source offers an earlier one, which
+recovers from a parse that overshot.
 
 Once a reset time is known it's stored, so every tick until then is a cheap
 no-op. When it passes, the watchdog types `continue` into the console

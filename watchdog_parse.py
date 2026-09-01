@@ -59,7 +59,14 @@ def tz_from(text, default="UTC"):
         return ZoneInfo("UTC")
 
 
-def parse_reset(text, now):
+# A window can only reset so far ahead. A 5-hour window that parses to 23
+# hours away means the parse was wrong -- almost always a bare clock time
+# that had already passed today and got rolled forward a day. Better to
+# report "unknown" and recheck in ten minutes than to commit to a day's wait.
+MAX_HORIZON = {"session": 6 * 3600, "weekly": 8 * 86400}
+
+
+def parse_reset(text, now, scope="session"):
     """Return epoch seconds for the next reset mentioned in text, or None."""
     # 1. bare epoch, e.g. "usage limit reached|1756654800"
     m = re.search(r"limit reached\|(\d{10,13})", text, re.I)
@@ -110,9 +117,24 @@ def parse_reset(text, now):
         if target <= local_now:
             target += timedelta(days=7)
     elif target <= local_now:
-        target += timedelta(days=1)
+        # A bare clock time already past today. For a short window that means
+        # it has ALREADY reset, so report it in the past and let the caller
+        # resume now. Only roll a day forward for long windows, where a
+        # next-day reset is plausible.
+        if scope == "weekly":
+            target += timedelta(days=1)
 
     return int(target.timestamp())
+
+
+def sane(epoch, now, scope):
+    """Reject a reset time further out than the window could possibly be."""
+    if epoch is None:
+        return None
+    horizon = MAX_HORIZON.get(scope, MAX_HORIZON["session"])
+    if epoch > int(now.timestamp()) + horizon:
+        return None
+    return epoch
 
 
 def scope_of(text):
@@ -143,10 +165,12 @@ def main():
         for b in blocks:
             if not re.search(r"reset", b, re.I):
                 continue
-            epoch = parse_reset(b, now)
+            block_scope = "weekly" if any(
+                re.search(p, b, re.I) for p in WEEKLY_MARKERS) else "session"
+            epoch = sane(parse_reset(b, now, block_scope), now, block_scope)
             if epoch is None:
                 continue
-            if any(re.search(p, b, re.I) for p in WEEKLY_MARKERS):
+            if block_scope == "weekly":
                 weekly = weekly or (epoch, bool(limit_lines(b)) or "100%" in b)
             else:
                 session = session or (epoch, bool(limit_lines(b)) or "100%" in b)
@@ -171,7 +195,8 @@ def main():
     blob = "\n".join(hits[-3:])
     result["limited"] = True
     result["scope"] = scope_of(blob)
-    result["reset_epoch"] = parse_reset(blob, now)
+    result["reset_epoch"] = sane(
+        parse_reset(blob, now, result["scope"]), now, result["scope"])
     print(json.dumps(result))
 
 

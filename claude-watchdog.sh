@@ -89,6 +89,55 @@ send_line() {
   tmux -u -S "$TMUX_SOCKET" send-keys -t "$SESSION" Enter
 }
 
+# --- a recorded resume time outranks everything --------------------------
+#
+# This check MUST come before consulting any source, and must never be
+# skipped because a source currently reports "not limited".
+#
+# The reason: Claude Code drops a rate-limit window from its payload the
+# moment that window resets. So at exactly the time we are waiting for, the
+# evidence that we were ever limited disappears. An earlier version treated
+# that as "not limited any more, nothing to do" and deleted the pending
+# resume -- so the session sat stopped for good, and because that exit path
+# logged nothing, the log simply went quiet at the reset time.
+#
+# The window resetting does not restart Claude. Somebody still has to type.
+if [[ -f "$RESUME_AT" ]]; then
+  saved="$(cat "$RESUME_AT" 2>/dev/null || echo)"
+  if [[ "$saved" =~ ^[0-9]+$ ]]; then
+    if (( saved > $(now) )); then
+      # Still waiting. Let a usable source shorten the estimate if it has a
+      # better one -- this recovers from a bad parse that overshot.
+      refreshed="$(python3 "$USAGE_READER" 2>/dev/null || echo '{}')"
+      if [[ "$(jq -r '.usable // false' <<<"$refreshed")" == "true" \
+            && "$(jq -r .limited <<<"$refreshed")" == "true" ]]; then
+        better="$(jq -r '.reset_epoch // empty' <<<"$refreshed")"
+        if [[ -n "$better" ]] && (( better < saved )); then
+          log "usage file gives an earlier reset ($(date -d "@$better" -Iseconds)), replacing $(date -d "@$saved" -Iseconds)"
+          echo "$better" > "$RESUME_AT"
+          saved="$better"
+        fi
+      fi
+      beat "waiting for $(cat "$SCOPE_FILE" 2>/dev/null || echo window) reset at $(date -d "@$saved" -Iseconds)"
+      exit 0
+    fi
+
+    if (( $(stamp_age "$LAST_NUDGE") < NUDGE_MIN_INTERVAL )); then
+      beat "reset reached but nudged $(stamp_age "$LAST_NUDGE")s ago, holding off"
+      exit 0
+    fi
+
+    log "$(cat "$SCOPE_FILE" 2>/dev/null || echo window) reset reached -- telling the console to continue"
+    send_line "$CONTINUE_TEXT"
+    date +%s > "$LAST_NUDGE"
+    rm -f "$RESUME_AT" "$SCOPE_FILE"
+    exit 0
+  fi
+  # Unparseable state file: drop it rather than block forever.
+  log "resume state file was not a timestamp -- discarding it"
+  rm -f "$RESUME_AT" "$SCOPE_FILE"
+fi
+
 # --- source 1: the status line's usage file --------------------------------
 usage_file_state="$(python3 "$USAGE_READER" 2>/dev/null || echo '{}')"
 if [[ "$(jq -r '.usable // false' <<<"$usage_file_state")" == "true" ]]; then
@@ -97,7 +146,6 @@ if [[ "$(jq -r '.usable // false' <<<"$usage_file_state")" == "true" ]]; then
 
   if [[ "$file_limited" != "true" ]]; then
     beat "not limited (usage file: ${file_reason})"
-    rm -f "$RESUME_AT" "$SCOPE_FILE"
     exit 0
   fi
 
@@ -105,21 +153,7 @@ if [[ "$(jq -r '.usable // false' <<<"$usage_file_state")" == "true" ]]; then
   reset_epoch="$(jq -r '.reset_epoch // empty' <<<"$usage_file_state")"
   echo "$reset_epoch" > "$RESUME_AT"
   echo "$scope" > "$SCOPE_FILE"
-
-  if (( reset_epoch > $(now) )); then
-    log "limited (${scope}, from usage file: ${file_reason}) until $(date -d "@$reset_epoch" -Iseconds), waiting"
-    exit 0
-  fi
-
-  if (( $(stamp_age "$LAST_NUDGE") < NUDGE_MIN_INTERVAL )); then
-    log "already nudged $(stamp_age "$LAST_NUDGE")s ago, holding off"
-    exit 0
-  fi
-
-  log "${scope} window reset (usage file) -- telling the console to continue"
-  send_line "$CONTINUE_TEXT"
-  date +%s > "$LAST_NUDGE"
-  rm -f "$RESUME_AT" "$SCOPE_FILE"
+  log "limited (${scope}, from usage file: ${file_reason}) until $(date -d "@$reset_epoch" -Iseconds), waiting"
   exit 0
 fi
 
@@ -132,20 +166,8 @@ scope="$(jq -r .scope <<<"$state")"
 reset_epoch="$(jq -r '.reset_epoch // empty' <<<"$state")"
 
 if [[ "$limited" != "true" ]]; then
-  # Console is not sitting on a limit message. Any pending resume is moot.
   beat "not limited (console shows no limit message)"
-  rm -f "$RESUME_AT" "$SCOPE_FILE"
   exit 0
-fi
-
-# A previously recorded resume time still in the future: just wait it out,
-# no /usage probe needed.
-if [[ -f "$RESUME_AT" ]]; then
-  saved="$(cat "$RESUME_AT")"
-  if [[ "$saved" =~ ^[0-9]+$ ]] && (( saved > $(now) )); then
-    log "limited (${scope}), waiting until $(date -d "@$saved" -Iseconds)"
-    exit 0
-  fi
 fi
 
 # --- source 3: type /usage into the console --------------------------------
